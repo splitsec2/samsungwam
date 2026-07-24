@@ -637,6 +637,10 @@ class SamsungWamPlayer(WamEntity, MediaPlayerEntity):
         for mode in self.speaker.attribute.sound_mode_list:
             if mode.name == sound_mode:
                 await self.speaker.select_sound_mode(mode)
+                return
+        raise ServiceValidationError(
+            f"Unknown sound mode '{sound_mode}' for {self.entity_id}"
+        )
 
     async def async_clear_playlist(self):
         """Clear players playlist."""
