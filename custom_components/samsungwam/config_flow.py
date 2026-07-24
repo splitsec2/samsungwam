@@ -46,8 +46,12 @@ class SamsungWamConfigFlow(ConfigFlow, domain=DOMAIN):
         self.config_title = ""
         self.config_id = ""
 
-    async def async_validate_device(self, host, port) -> ConfigFlowResult | None:
-        """Validate data by fetching speaker attributes."""
+    async def async_validate_device(self, host, port) -> str | None:
+        """Validate data by fetching speaker attributes.
+
+        Returns an error code (for errors["base"] / abort reason) on failure,
+        or None on success. May raise AbortFlow via _abort_if_unique_id_configured.
+        """
         LOGGER.debug("Trying to connect to speaker at: %s", host)
 
         try:
@@ -70,12 +74,11 @@ class SamsungWamConfigFlow(ConfigFlow, domain=DOMAIN):
 
         except Exception:  # pylint: disable=broad-except
             LOGGER.exception("Error while getting speaker data")
-            # TODO: Better error handling
-            return self.async_abort(reason=ERROR_CANNOT_CONNECT)
+            return ERROR_CANNOT_CONNECT
 
         # Unique ID
         if not self.config_id:
-            return self.async_abort(reason=ERROR_NO_SERIAL)
+            return ERROR_NO_SERIAL
         await self.async_set_unique_id(self.config_id)
         self._abort_if_unique_id_configured(
             updates={CONF_HOST: self.config_data[CONF_HOST]}
@@ -99,9 +102,9 @@ class SamsungWamConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_abort(reason=ERROR_NOT_SUPPORTED)
         port = get_device_info(ssdp_model).port
 
-        # Validate speaker
-        if result := await self.async_validate_device(host, port):
-            return result
+        # Validate speaker; discovery can't show a form, so abort on error.
+        if error := await self.async_validate_device(host, port):
+            return self.async_abort(reason=error)
 
         return await self.async_step_confirm()
 
@@ -113,13 +116,12 @@ class SamsungWamConfigFlow(ConfigFlow, domain=DOMAIN):
             host = user_input[CONF_HOST]
             port = user_input[CONF_PORT]
 
-            # Validate speaker
-            if result := await self.async_validate_device(host, port):
-                return result
-
-            # Go to confirmation step if no errors
-            if not errors:
+            # Validate speaker; on error re-show the form instead of
+            # aborting the whole flow, so the user can correct the input.
+            error = await self.async_validate_device(host, port)
+            if error is None:
                 return await self.async_step_confirm()
+            errors["base"] = error
 
         # Show input form
         return self.async_show_form(

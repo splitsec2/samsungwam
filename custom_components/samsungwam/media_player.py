@@ -233,7 +233,7 @@ class SamsungWamPlayer(WamEntity, MediaPlayerEntity):
     @property
     def volume_level(self) -> float | None:
         """Volume level of the media player (0..1)."""
-        if self.speaker.attribute.volume:
+        if self.speaker.attribute.volume is not None:
             return self.speaker.attribute.volume / 100
         return None
 
@@ -637,6 +637,10 @@ class SamsungWamPlayer(WamEntity, MediaPlayerEntity):
         for mode in self.speaker.attribute.sound_mode_list:
             if mode.name == sound_mode:
                 await self.speaker.select_sound_mode(mode)
+                return
+        raise ServiceValidationError(
+            f"Unknown sound mode '{sound_mode}' for {self.entity_id}"
+        )
 
     async def async_clear_playlist(self):
         """Clear players playlist."""
