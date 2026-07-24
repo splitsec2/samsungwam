@@ -1,0 +1,73 @@
+"""Media-player behaviour tests for the samsungwam `fixes/easy-wins` branch.
+
+Builds a ``SamsungWamPlayer`` directly on top of a mocked device/speaker
+(no hass, no network) and asserts the sound-mode fix:
+
+  * select_sound_mode of an unknown mode -> ServiceValidationError
+    (this branch) vs a silent no-op (master)
+"""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from homeassistant.exceptions import ServiceValidationError
+
+from custom_components.samsungwam.media_player import SamsungWamPlayer
+
+
+def make_player(*, volume=0, sound_mode_names=("Standard", "Music", "Clear Voice")):
+    """Construct a SamsungWamPlayer wired to a mocked device + speaker."""
+    def _mode(mode_name):
+        # NB: MagicMock(name=...) sets the mock's repr name, not a .name
+        # attribute -- so assign .name explicitly after construction.
+        m = MagicMock()
+        m.name = mode_name
+        return m
+
+    speaker = MagicMock()
+    speaker.attribute.volume = volume
+    speaker.attribute.sound_mode_list = [_mode(n) for n in sound_mode_names]
+    speaker.select_sound_mode = AsyncMock()
+
+    device = MagicMock()
+    device.speaker = speaker
+    device.entry.unique_id = TEST_UNIQUE_ID
+    device.id = "(Living Room@192.168.1.55)"
+
+    player = SamsungWamPlayer(device)
+    # entity_id is normally assigned by the platform; set it for property/error use.
+    player.entity_id = "media_player.living_room_speaker"
+    return player
+
+
+TEST_UNIQUE_ID = "AABBCCDDEEFF"
+
+
+# ---------------------------------------------------------------------------
+# select_sound_mode with an unknown mode
+# ---------------------------------------------------------------------------
+async def test_select_unknown_sound_mode_raises() -> None:
+    """Selecting a mode not in sound_mode_list must raise a validation error.
+
+    this branch raises ServiceValidationError after the loop.
+    master falls through the loop and returns silently (the bug), so this
+    test FAILS there (no exception raised).
+    """
+    player = make_player(sound_mode_names=("Standard", "Music"))
+
+    with pytest.raises(ServiceValidationError):
+        await player.async_select_sound_mode("NoSuchMode")
+
+    # And it must not have tried to push the bogus mode to the speaker.
+    player.speaker.select_sound_mode.assert_not_called()
+
+
+async def test_select_known_sound_mode_calls_speaker() -> None:
+    """Sanity: a valid mode is forwarded to the speaker (passes on both)."""
+    player = make_player(sound_mode_names=("Standard", "Music"))
+
+    await player.async_select_sound_mode("Music")
+
+    player.speaker.select_sound_mode.assert_awaited_once()
